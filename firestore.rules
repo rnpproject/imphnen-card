@@ -19,7 +19,7 @@ service cloud.firestore {
         && d.username is string && d.username.matches('^[A-Za-z0-9._]{3,24}$')
         && d.usernameLower == d.username.lower()
         && d.joinedAt is string && d.joinedAt.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
-        && d.theme in ['navy', 'langit', 'malam']
+        && d.theme in ['navy', 'langit', 'dark']
         && d.accent is string && d.accent.matches('^#[0-9a-fA-F]{6}$')
         && d.showUid is bool
         && d.updatedAt == request.time

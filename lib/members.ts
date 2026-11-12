@@ -51,7 +51,7 @@ export async function loadMemberCard(uid: string): Promise<CardState | null> {
     province: typeof d.province === "string" ? d.province : "",
     joined: typeof d.joinedAt === "string" ? d.joinedAt : "",
     badge: typeof d.badge === "string" ? d.badge : "Member",
-    theme: (d.theme in THEMES ? d.theme : "navy") as ThemeId,
+    theme: (d.theme === "malam" ? "dark" : d.theme in THEMES ? d.theme : "navy") as ThemeId,
     accent: typeof d.accent === "string" && /^#[0-9a-fA-F]{6}$/.test(d.accent) ? d.accent : "#ffc93c",
     showUid: d.showUid === true,
   };
