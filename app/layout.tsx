@@ -6,7 +6,7 @@ const fredoka = Fredoka({ subsets: ["latin"], weight: ["500", "600", "700"], var
 const nunito = Nunito({ subsets: ["latin"], weight: ["600", "700", "800", "900"], variable: "--font-nunito", display: "swap" });
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://imphnen-card.rnpproject.com"),
   title: "Kartu Member IMPHNEN",
   description: "Buat kartu member IMPHNEN dari UID Facebook, atur tampilannya, lalu unduh sebagai PNG.",
 };
