@@ -63,7 +63,7 @@ function parseCard(value: FormDataEntryValue | null): CardState | null {
       || typeof raw.joined !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(raw.joined)
     ) return null;
 
-    const theme = raw.theme === "malam" ? "dark" : raw.theme && raw.theme in THEMES ? raw.theme : "navy";
+    const theme = raw.theme === "dark" ? "dark" : raw.theme && raw.theme in THEMES ? raw.theme : "navy";
     return {
       uid: raw.uid,
       name: raw.name.trim().slice(0, 40),
