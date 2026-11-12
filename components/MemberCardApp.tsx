@@ -154,18 +154,19 @@ export default function MemberCardApp() {
   }
 
   async function onDownload(side: "front" | "back") {
-    if (!turnstileToken) {
-      setLookupStatus({ text: "Selesaikan verifikasi Cloudflare sebelum mengunduh kartu.", kind: "err" });
-      return;
-    }
     setExporting(side);
     try {
-      const response = await fetch("/api/member/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: card.name, username: card.username, turnstileToken }),
-        cache: "no-store",
-      });
+      let response: Response;
+      try {
+        response = await fetch("/api/member/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: card.name, username: card.username }),
+          cache: "no-store",
+        });
+      } catch {
+        throw new Error("Tidak dapat menghubungi server verifikasi. Periksa koneksi internet lalu coba lagi.");
+      }
       const data = await response.json().catch(() => null) as { error?: string } | null;
       if (!response.ok) throw new Error(data?.error ?? "Nama dan username belum terverifikasi.");
       await downloadCard(card, side);
@@ -174,8 +175,6 @@ export default function MemberCardApp() {
       setLookupStatus({ text: error instanceof Error ? error.message : "Gambar gagal dibuat. Coba lagi.", kind: "err" });
     } finally {
       setExporting(null);
-      setTurnstileToken("");
-      setTurnstileReset((value) => value + 1);
     }
   }
 

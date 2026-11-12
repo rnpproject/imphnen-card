@@ -99,6 +99,20 @@ input:focus-visible, textarea:focus-visible { outline-offset: 0; border-color: v
 .stack { display: flex; flex-direction: column; gap: 14px; }
 @media (max-width: 520px) { .grid-2 { grid-template-columns: minmax(0, 1fr); } .row { flex-direction: column; align-items: stretch; } }
 
+@media (max-width: 520px) {
+  .top .wrap {
+    display: grid;
+    grid-template-columns: 76px minmax(0, 1fr);
+    align-items: start;
+    gap: 8px 12px;
+    padding-block: 16px 14px;
+  }
+  .badge { width: 76px; height: 76px; }
+  .top .wrap > div { flex: initial; min-width: 0; }
+  h1 { font-size: clamp(1.25rem, 6vw, 1.5rem); line-height: 1.12; }
+  .lede { margin-top: 4px; font-size: .9rem; line-height: 1.4; }
+}
+
 .btn {
   font: inherit; font-weight: 800; cursor: pointer;
   border: 2px solid transparent; border-radius: 12px;

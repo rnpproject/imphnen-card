@@ -44,7 +44,7 @@ Username yang belum memiliki sertifikat harus didaftarkan terlebih dahulu di [im
 
 ## Kartu dan unduhan
 
-Pengguna dapat mengunduh kartu depan atau belakang sebagai PNG tanpa login. Unduhan tetap memerlukan verifikasi Turnstile dan kecocokan nama serta username dengan sertifikat. Status kartu menambahkan `Verified` pada role, misalnya `Member Verified` atau `Admin Verified`.
+Pengguna dapat mengunduh kartu depan atau belakang sebagai PNG tanpa login. Unduhan memeriksa kecocokan nama serta username dengan sertifikat, tanpa challenge Turnstile tambahan. Turnstile hanya dipakai pada form pencarian UID. Status kartu menambahkan `Verified` pada role, misalnya `Member Verified` atau `Admin Verified`.
 
 Kartu yang sudah disimpan dapat dilihat melalui `/username/{username}`. Halaman tersebut dapat dibagikan secara publik dan mengambil data dari Firestore.
 

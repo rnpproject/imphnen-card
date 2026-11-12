@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { fetchOfficialCertificate } from "@/lib/certificate";
-import { verifyTurnstile } from "@/lib/turnstile";
 
 export const dynamic = "force-dynamic";
 
@@ -12,12 +11,8 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => null) as {
     name?: unknown;
     username?: unknown;
-    turnstileToken?: unknown;
   } | null;
   if (!body) return fail(400, "Data verifikasi tidak valid.");
-  if (!await verifyTurnstile(body.turnstileToken, req.headers.get("CF-Connecting-IP"))) {
-    return fail(403, "Selesaikan verifikasi Cloudflare terlebih dahulu.");
-  }
 
   const name = typeof body.name === "string" ? body.name.trim() : "";
   const username = typeof body.username === "string" ? body.username.trim().replace(/^@/, "") : "";
