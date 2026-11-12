@@ -75,7 +75,13 @@ export default function MemberCardApp() {
   }
 
   const patch = (p: Partial<CardState>) => setCard((c) => ({ ...c, ...p }));
-  const metadata = useMemo(() => JSON.stringify(buildMetadata(card), null, 2), [card]);
+  const ownsCard = facebookUid !== null && facebookUid === card.uid;
+  const verifiedProfile = ownsCard && activeUid === card.uid;
+  const displayedCard = useMemo(() => ({
+    ...card,
+    badge: verifiedProfile ? `${card.badge.trim() || "Member"} Verified` : "Member",
+  }), [card, verifiedProfile]);
+  const metadata = useMemo(() => JSON.stringify(buildMetadata(displayedCard), null, 2), [displayedCard]);
 
   const showFace = (face: "front" | "back") => {
     setSpinning(false);
@@ -84,6 +90,10 @@ export default function MemberCardApp() {
 
   async function onLookup(e: FormEvent) {
     e.preventDefault();
+    if (!facebookUid) {
+      setLookupStatus({ text: "Login dengan Facebook terlebih dahulu untuk mencari data.", kind: "err" });
+      return;
+    }
     const uid = uidInput.replace(/\s+/g, "");
     if (!/^\d{5,20}$/.test(uid)) {
       setLookupStatus({ text: "UID harus berupa angka, 5 sampai 20 digit.", kind: "err" });
@@ -165,10 +175,8 @@ export default function MemberCardApp() {
     }
   }
 
-  const ownsCard = facebookUid !== null && facebookUid === card.uid;
   const canSave = firebaseReady && activeUid !== null && activeUid === card.uid && ownsCard;
   const cardSaved = savedSignature !== null && savedSignature === cardSignature(card);
-  const canDownload = ownsCard;
   const saveHint = !firebaseReady
     ? "Firebase belum dikonfigurasi. Isi NEXT_PUBLIC_FIREBASE_* untuk menyimpan kartu."
       : !authUser
@@ -198,13 +206,9 @@ export default function MemberCardApp() {
   }
 
   async function onDownload(side: "front" | "back") {
-    if (!ownsCard) {
-      setAuthStatus("Login dengan akun Facebook yang UID-nya cocok dengan kartu untuk mengunduh.");
-      return;
-    }
     setExporting(side);
     try {
-      await downloadCard(card, side);
+      await downloadCard(displayedCard, side);
     } catch {
       setLookupStatus({ text: "Gambar gagal dibuat. Coba lagi.", kind: "err" });
     } finally {
@@ -235,7 +239,13 @@ export default function MemberCardApp() {
                 placeholder="100079664152403" value={uidInput} onChange={(e) => setUidInput(e.target.value)}
               />
             </div>
-            <button className="btn btn-primary" type="submit" disabled={looking}>Cari data</button>
+            {facebookUid ? (
+              <button className="btn btn-primary" type="submit" disabled={looking}>{looking ? "Mencari..." : "Cari data"}</button>
+            ) : (
+              <button className="btn btn-primary" type="button" onClick={onFacebookLogin} disabled={authBusy || !firebaseReady}>
+                {authBusy ? "Membuka login..." : "Login Facebook"}
+              </button>
+            )}
           </div>
           <p className={"status " + lookupStatus.kind} role="status" aria-live="polite">{lookupStatus.text}</p>
         </form>
@@ -248,17 +258,13 @@ export default function MemberCardApp() {
               <p className="deletion-identity">Login Facebook · UID: <strong>{facebookUid}</strong></p>
               <button className="text-button" type="button" onClick={onFacebookLogout}>Keluar</button>
             </>
-          ) : (
-            <button className="btn btn-ghost" type="button" onClick={onFacebookLogin} disabled={authBusy || !firebaseReady}>
-              {authBusy ? "Membuka login…" : "Login dengan Facebook"}
-            </button>
-          )}
+          ) : null}
           {authStatus ? <p className="status err" role="status">{authStatus}</p> : null}
         </div>
       </section>
 
       <section className="stage" aria-label="Pratinjau kartu">
-        <Card3D card={card} spinning={spinning} snap={snap} />
+        <Card3D card={displayedCard} spinning={spinning} snap={snap} />
         <div className="tools">
           <button className="btn btn-ghost" type="button" onClick={() => setSpinning((v) => !v)} aria-pressed={spinning}>
             {spinning ? "Jeda putaran" : "Putar otomatis"}
@@ -267,10 +273,9 @@ export default function MemberCardApp() {
           <button className="btn btn-ghost" type="button" onClick={() => showFace("back")}>Lihat belakang</button>
         </div>
         <div className="tools tools-dl">
-          <button className="btn btn-primary" type="button" onClick={() => onDownload("front")} disabled={exporting !== null || !canDownload}>Unduh depan (PNG)</button>
-          <button className="btn btn-ghost" type="button" onClick={() => onDownload("back")} disabled={exporting !== null || !canDownload}>Unduh belakang (PNG)</button>
+          <button className="btn btn-primary" type="button" onClick={() => onDownload("front")} disabled={exporting !== null}>Unduh depan (PNG)</button>
+          <button className="btn btn-ghost" type="button" onClick={() => onDownload("back")} disabled={exporting !== null}>Unduh belakang (PNG)</button>
         </div>
-        {!canDownload ? <p className="hint">Login dengan akun Facebook yang UID-nya cocok dengan kartu untuk mengunduh.</p> : null}
         <p className="tip">Seret kartu untuk memutarnya. Lepaskan, dan kartu berputar lagi.</p>
       </section>
 
@@ -286,6 +291,10 @@ export default function MemberCardApp() {
             <div className="field">
               <label htmlFor="username">Username</label>
               <input id="username" type="text" maxLength={24} autoComplete="off" spellCheck={false} value={card.username} onChange={(e) => patch({ username: cleanUser(e.target.value) })} />
+            </div>
+            <div className="field">
+              <label htmlFor="joined">Tanggal bergabung</label>
+              <input id="joined" type="date" value={card.joined} onChange={(e) => patch({ joined: e.target.value })} />
             </div>
             <div className="field">
               <label htmlFor="city">Kota</label>
@@ -337,7 +346,7 @@ export default function MemberCardApp() {
         </div>
       </section>
 
-      <NftMintPanel card={card} cardSaved={cardSaved} ownerVerified={ownsCard} metadata={metadata} onCopy={onCopy} copyStatus={copyStatus} />
+      <NftMintPanel card={displayedCard} cardSaved={cardSaved} ownerVerified={ownsCard} metadata={metadata} onCopy={onCopy} copyStatus={copyStatus} />
     </main>
   );
 }

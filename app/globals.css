@@ -105,7 +105,7 @@ h2 { margin: 0 0 4px; font-family: var(--font-display); font-weight: 600; font-s
 /* ---------- Form ---------- */
 .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .field > label, .legend { font-weight: 800; font-size: .86rem; color: var(--ink-2); }
-input[type="text"], textarea {
+input[type="text"], input[type="date"], textarea {
   width: 100%; min-width: 0;
   font: inherit; font-weight: 700; color: var(--ink);
   background: var(--field);
