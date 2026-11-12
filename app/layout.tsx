@@ -13,7 +13,7 @@ const nunito = Nunito({ subsets: ["latin"], weight: ["600", "700", "800", "900"]
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: "Kartu Member IMPHNEN",
-  description: "Buat kartu member IMPHNEN dari UID Facebook, atur tampilannya, lalu unduh sebagai PNG.",
+  description: "Cari data member IMPHNEN, atur tampilan kartu, lalu unduh sebagai PNG.",
 };
 
 export const viewport: Viewport = {

@@ -53,17 +53,16 @@ h1 { margin: 0; font-family: var(--font-display); font-weight: 600; font-size: c
 .layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr);
-  grid-template-areas: "lookup stage" "edit stage" "nft stage";
+  grid-template-areas: "lookup stage" "edit stage";
   gap: 20px 28px;
   align-items: start;
   padding-block: 24px 56px;
 }
 .p-lookup { grid-area: lookup; }
 .p-edit { grid-area: edit; }
-.p-nft { grid-area: nft; }
 .stage { grid-area: stage; position: sticky; top: 16px; min-width: 0; }
 @media (max-width: 880px) {
-  .layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "lookup" "stage" "edit" "nft"; }
+  .layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "lookup" "stage" "edit"; }
   .stage { position: static; }
 }
 
@@ -78,29 +77,6 @@ h1 { margin: 0; font-family: var(--font-display); font-weight: 600; font-size: c
 h2 { margin: 0 0 4px; font-family: var(--font-display); font-weight: 600; font-size: 1.25rem; }
 .hint { margin: 0 0 16px; color: var(--ink-2); font-size: .94rem; }
 .hint-save { margin: 8px 0 0; font-size: .86rem; }
-
-/* ---------- Privacy and data deletion pages ---------- */
-.legal-wrap { width: min(100% - 32px, 760px); margin: 32px auto 56px; }
-.legal-panel { padding: clamp(20px, 5vw, 36px); }
-.legal-kicker { margin: 0 0 8px; color: var(--ink-2); font-weight: 900; }
-.legal-panel h1 { margin-bottom: 8px; }
-.legal-panel h2 { margin: 26px 0 8px; }
-.legal-panel p, .legal-panel li { color: var(--ink-2); }
-.legal-panel a { color: var(--focus); font-weight: 800; }
-.legal-panel ol { padding-left: 24px; }
-.legal-panel li + li { margin-top: 8px; }
-.deletion-form { display: grid; gap: 14px; margin-top: 24px; }
-.deletion-form input { width: 100%; min-width: 0; font: inherit; font-weight: 700; color: var(--ink); background: var(--field); border: 2px solid var(--line); border-radius: 12px; padding: 10px 12px; }
-.primary-button { justify-self: start; border: 0; border-radius: 12px; padding: 12px 20px; color: var(--yellow-ink); background: var(--yellow); box-shadow: 0 4px 0 rgba(15,34,64,.18); font: inherit; font-weight: 900; cursor: pointer; }
-.primary-button:disabled { opacity: .65; cursor: wait; }
-.deletion-message { margin: 0; overflow-wrap: anywhere; font-weight: 800; }
-.deletion-message.is-ok { color: var(--ok); }
-.deletion-message.is-error { color: var(--err); }
-.deletion-identity { margin: 0; color: var(--ink-2); overflow-wrap: anywhere; }
-.delete-button { justify-self: start; border: 2px solid var(--err); border-radius: 12px; padding: 11px 18px; color: var(--err); background: transparent; font: inherit; font-weight: 900; cursor: pointer; }
-.delete-button:disabled, .text-button:disabled { opacity: .6; cursor: wait; }
-.text-button { justify-self: start; border: 0; padding: 4px 0; color: var(--ink-2); background: transparent; font: inherit; font-weight: 800; text-decoration: underline; cursor: pointer; }
-.legal-foot { margin-top: 32px; }
 
 /* ---------- Form ---------- */
 .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
@@ -233,9 +209,12 @@ fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .tools-dl { margin-top: 10px; }
 .tip { text-align: center; margin: 12px 0 0; font-size: .88rem; color: var(--ink-2); font-weight: 600; }
 
-/* ---------- NFT ---------- */
-.p-nft h2 { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.tag { font-family: var(--font-body); font-size: .72rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; padding: 3px 10px; border-radius: 999px; background: var(--yellow); color: var(--yellow-ink); }
+.turnstile-wrap { display: flex; flex-direction: column; align-items: flex-start; margin-top: 12px; min-height: 65px; }
+.public-card-page { width: min(100% - 32px, 720px); min-height: 100vh; margin: 0 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding-block: 40px; text-align: center; }
+.public-card-heading h1 { margin: 0; font-family: var(--font-display); font-size: clamp(1.8rem, 6vw, 2.6rem); }
+.public-card-heading p { margin: 4px 0 0; color: var(--ink-2); font-weight: 700; }
+.public-card-heading .public-card-kicker { margin-bottom: 6px; color: var(--focus); font-size: .82rem; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
+.public-card-note { margin: 0; color: var(--ink-2); font-weight: 700; }
 
 @media (prefers-reduced-motion: reduce) {
   .btn { transition: none; }

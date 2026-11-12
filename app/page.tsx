@@ -11,7 +11,7 @@ export default function Page() {
           <Image className="badge" src="/badge.png" alt="IMPHNEN Member Card" width={112} height={112} priority />
           <div>
             <h1>Pembuat kartu member</h1>
-            <p className="lede">Cari data member di database, atau daftarkan UID baru dan buat kartu.</p>
+            <p className="lede">Cari dengan UID, cocokkan identitas sertifikat IMPHNEN, lalu simpan dan bagikan preview kartu.</p>
           </div>
         </div>
       </header>

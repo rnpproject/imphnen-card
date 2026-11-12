@@ -1,7 +1,7 @@
 import { GROUP_URL, THEMES, type Theme } from "./themes";
 import { fmtDate } from "./date";
 import { identiconCells } from "./identicon";
-import { locationText, type CardState } from "./card";
+import { locationText, verifiedBadge, type CardState } from "./card";
 
 const loadImg = (src: string) =>
   new Promise<HTMLImageElement>((res, rej) => {
@@ -102,7 +102,7 @@ export async function renderCanvas(c: CardState, side: "front" | "back", width =
   if (side === "front") {
     const logo = await loadImg("/logo.png");
     ctx.drawImage(logo, 6.5 * u, 6 * u, 20 * u, (20 * u * logo.height) / logo.width);
-    txt(ctx, c.badge.trim() || "Member", W - 6.5 * u, 11.3 * u, `600 ${4 * u}px ${D}`, userColor, "right");
+    txt(ctx, verifiedBadge(c.badge), W - 6.5 * u, 11.3 * u, `600 ${4 * u}px ${D}`, userColor, "right");
     const ns = name.length > 24 ? 5 : name.length > 16 ? 6 : 7.2;
     const ny = (name.length > 24 ? 26.2 : name.length > 16 ? 25.4 : 24.8) + ns / 2;
     txt(ctx, name, 6.5 * u, ny * u, `800 ${ns * u}px ${N}`, T.text, "left", "0px", 87 * u);

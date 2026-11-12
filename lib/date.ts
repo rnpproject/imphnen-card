@@ -16,3 +16,14 @@ export function fmtDate(ymd: string, long: boolean): string {
     : { month: "short", year: "numeric" };
   return new Intl.DateTimeFormat("id-ID", { ...opts, timeZone: "UTC" }).format(d);
 }
+
+export function todayYMD(timeZone = "Asia/Jakarta"): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const value = (type: string) => parts.find((part) => part.type === type)?.value ?? "00";
+  return `${value("year")}-${value("month")}-${value("day")}`;
+}

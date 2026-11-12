@@ -1,5 +1,10 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import { toYMD } from "@/lib/date";
+import { verifyTurnstile } from "@/lib/turnstile";
+import { fetchOfficialCertificate } from "@/lib/certificate";
+import { loadPublicCardByUid } from "@/lib/admin-firestore";
+import { createScrapeProof } from "@/lib/scrape-proof";
+import { notifyScrapeFailure, notifyScrapeSuccess } from "@/lib/telegram-alert";
 
 export const dynamic = "force-dynamic";
 
@@ -8,8 +13,22 @@ const TIMEOUT_MS = 10_000;
 const GROUP_URL = "https://www.facebook.com/groups/1032515944638255/user/";
 const JOINED_RE = /\b([A-Za-z][A-Za-z-]*(?:\s+[A-Za-z][A-Za-z-]*){0,2}?)\s+of\s+Ingin Menjadi Programmer Handal,\s*Namun Enggan Ngoding\s+since\s+([^"<]+)/i;
 
+type ScrapeAttempt =
+  | { ok: true; name: string; badge: string; joinedAt: string }
+  | { ok: false; status: number; clientError: string; stage: string; reason: string; httpStatus?: number; pageTitle?: string };
+
 function fail(status: number, error: string) {
   return NextResponse.json({ error }, { status });
+}
+
+async function scrapeFail(
+  uid: string,
+  status: number,
+  error: string,
+  details: { stage: string; reason: string; httpStatus?: number; pageTitle?: string },
+) {
+  await notifyScrapeFailure({ uid, ...details });
+  return fail(status, error);
 }
 
 function decodeHtml(value: string) {
@@ -21,21 +40,15 @@ function decodeHtml(value: string) {
     .replace(/&gt;/g, ">");
 }
 
-export async function GET(_req: Request, ctx: { params: Promise<{ uid: string }> }) {
-  const { uid } = await ctx.params;
-  if (!UID_RE.test(uid)) return fail(400, "UID Facebook harus berupa angka, 5 sampai 20 digit.");
-
-  const cookie = process.env.COOKIE;
-  if (!cookie) return fail(503, "Scraper belum dikonfigurasi. Isi COOKIE di environment server.");
-
-  let res: Response;
+async function scrapeWithCookie(uid: string, cookie: string): Promise<ScrapeAttempt> {
+  let response: Response;
   try {
-    res = await fetch(GROUP_URL + encodeURIComponent(uid), {
+    response = await fetch(GROUP_URL + encodeURIComponent(uid), {
       headers: {
         Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9,id;q=0.8",
         "Cache-Control": "no-cache",
-        Cookie: `cookie=${cookie}`,
+        Cookie: "cookie=" + cookie,
         DPR: "1",
         Pragma: "no-cache",
         Priority: "u=0, i",
@@ -60,23 +73,123 @@ export async function GET(_req: Request, ctx: { params: Promise<{ uid: string }>
     });
   } catch (error) {
     const timeout = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
-    return fail(504, timeout ? "Facebook tidak merespons. Coba lagi." : "Server tidak bisa menghubungi Facebook.");
+    return {
+      ok: false,
+      status: 504,
+      clientError: timeout ? "Facebook tidak merespons. Coba lagi." : "Server tidak bisa menghubungi Facebook.",
+      stage: "Menghubungi Facebook",
+      reason: timeout
+        ? "Request melewati batas waktu " + TIMEOUT_MS + " ms."
+        : error instanceof Error ? (error.name + ": " + error.message).slice(0, 300) : "Kesalahan jaringan yang tidak diketahui.",
+    };
   }
 
-  if (res.status === 404) return fail(404, "UID tidak ditemukan di halaman Facebook.");
-  if (!res.ok) return fail(502, `Facebook menjawab dengan kode ${res.status}.`);
+  if (!response.ok) return {
+    ok: false,
+    status: response.status === 404 ? 404 : 502,
+    clientError: response.status === 404 ? "UID tidak ditemukan di halaman Facebook." : "Facebook menjawab dengan kode " + response.status + ".",
+    stage: "Respons Facebook",
+    reason: response.status === 404
+      ? "Halaman profil grup tidak ditemukan untuk UID tersebut."
+      : "Facebook menolak atau gagal memuat halaman profil (HTTP " + response.status + ").",
+    httpStatus: response.status,
+  };
 
-  const html = await res.text();
+  let html: string;
+  try {
+    html = await response.text();
+  } catch (error) {
+    return {
+      ok: false,
+      status: 502,
+      clientError: "Respons Facebook terputus saat membaca halaman.",
+      stage: "Membaca respons Facebook",
+      reason: error instanceof Error ? (error.name + ": " + error.message).slice(0, 300) : "Stream respons gagal dibaca.",
+      httpStatus: response.status,
+    };
+  }
+
   const title = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1];
   const memberMatch = JOINED_RE.exec(html);
-  if (!title || !memberMatch) {
-    return fail(404, "Data member tidak ditemukan. Pastikan COOKIE aktif dan akun dapat melihat grup.");
+  const pageTitle = title ? decodeHtml(title.replace(/<[^>]*>/g, "")).replace(/\s+/g, " ").trim() : undefined;
+  if (!title || !memberMatch) return {
+    ok: false,
+    status: 404,
+    clientError: "Data member tidak ditemukan.",
+    stage: "Membaca halaman profil",
+    reason: "Pola nama/tanggal keanggotaan tidak ditemukan (title=" + Boolean(title) + ", pola member=" + Boolean(memberMatch) + "). Halaman mungkin meminta login, menampilkan checkpoint, atau format Facebook berubah.",
+    httpStatus: response.status,
+    pageTitle,
+  };
+
+  const name = pageTitle || "";
+  const badge = memberMatch[1].trim().replace(/\s+/g, " ").replace(/\b[a-z]/gi, (letter) => letter.toUpperCase());
+  const rawDate = decodeHtml(memberMatch[2]).trim();
+  const joinedAt = toYMD(rawDate);
+  if (!name || !joinedAt) return {
+    ok: false,
+    status: 502,
+    clientError: "Format tanggal bergabung dari Facebook tidak dikenali.",
+    stage: "Mem-parsing data anggota",
+    reason: "Nama valid=" + Boolean(name) + "; hasil parsing tanggal=" + (joinedAt || "tidak dikenali") + "; teks tanggal=" + rawDate.slice(0, 120) + ".",
+    httpStatus: response.status,
+    pageTitle,
+  };
+
+  return { ok: true, name, badge, joinedAt };
+}
+
+export async function POST(req: Request, ctx: { params: Promise<{ uid: string }> }) {
+  const { uid } = await ctx.params;
+  if (!UID_RE.test(uid)) return fail(400, "UID Facebook harus berupa angka, 5 sampai 20 digit.");
+
+  if (!process.env.TURNSTILE_SECRET_KEY) return fail(503, "Turnstile belum dikonfigurasi di server.");
+  const body = await req.json().catch(() => null) as { turnstileToken?: unknown } | null;
+  if (!body?.turnstileToken) return fail(400, "Selesaikan verifikasi anti-bot terlebih dahulu.");
+  const verified = await verifyTurnstile(body.turnstileToken, req.headers.get("CF-Connecting-IP"));
+  if (!verified) return fail(403, "Verifikasi anti-bot gagal atau kedaluwarsa. Coba lagi.");
+
+  const savedCard = await loadPublicCardByUid(uid).catch(() => null);
+  if (savedCard?.username && savedCard.name && savedCard.joined) {
+    const certificate = await fetchOfficialCertificate(savedCard.username).catch(() => null);
+    if (certificate && certificate.name.toLocaleLowerCase("id-ID") === savedCard.name.toLocaleLowerCase("id-ID")) {
+      const scrapeProof = createScrapeProof({ uid, name: certificate.name, joinedAt: savedCard.joined });
+      return NextResponse.json({
+        source: "database",
+        card: { ...savedCard, name: certificate.name, username: certificate.username },
+        scrapeProof,
+      });
+    }
   }
 
-  const name = decodeHtml(title.replace(/<[^>]*>/g, "")).replace(/\s+/g, " ").trim();
-  const badge = memberMatch[1].trim().replace(/\s+/g, " ").replace(/\b[a-z]/gi, (letter) => letter.toUpperCase());
-  const joinedAt = toYMD(decodeHtml(memberMatch[2]).trim());
-  if (!name || !joinedAt) return fail(502, "Format tanggal bergabung dari Facebook tidak dikenali.");
+  const cookies = [
+    { label: "COOKIE", value: process.env.COOKIE },
+    { label: "COOKIE1", value: process.env.COOKIE1 },
+  ].filter((item): item is { label: string; value: string } => Boolean(item.value?.trim()));
 
-  return NextResponse.json({ name, badge, joinedAt });
+  if (cookies.length === 0) return scrapeFail(uid, 503, "Scraper belum dikonfigurasi. Isi COOKIE atau COOKIE1 di environment server.", {
+    stage: "Konfigurasi sesi",
+    reason: "Environment COOKIE dan COOKIE1 kosong; request Facebook tidak dikirim.",
+  });
+
+  const failures: Array<{ label: string; result: Extract<ScrapeAttempt, { ok: false }> }> = [];
+  for (const cookie of cookies) {
+    const result = await scrapeWithCookie(uid, cookie.value);
+    if (result.ok) {
+      await notifyScrapeSuccess({ uid, name: result.name, badge: result.badge, joinedAt: result.joinedAt, cookieLabel: cookie.label });
+      const scrapeProof = createScrapeProof({ uid, name: result.name, joinedAt: result.joinedAt });
+      return NextResponse.json({ source: "scrape", name: result.name, badge: result.badge, joinedAt: result.joinedAt, scrapeProof });
+    }
+    failures.push({ label: cookie.label, result });
+  }
+
+  const lastFailure = failures[failures.length - 1].result;
+  const allNotFound = failures.every(({ result }) => result.status === 404);
+  const reasons = failures.map(({ label, result }) => label + ": " + result.stage + " — " + result.reason).join(" | ");
+  return scrapeFail(uid, allNotFound ? 404 : lastFailure.status, lastFailure.clientError, {
+    stage: "Semua sesi gagal (" + failures.map(({ label }) => label).join(", ") + ")",
+    reason: reasons,
+    httpStatus: lastFailure.httpStatus,
+    pageTitle: lastFailure.pageTitle,
+  });
 }

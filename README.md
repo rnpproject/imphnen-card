@@ -1,104 +1,68 @@
-﻿# Kartu Member IMPHNEN
+# Kartu Member IMPHNEN
 
-Next.js 15 (App Router, TypeScript). UID Facebook dipakai untuk mengambil nama dan tanggal bergabung melalui scraper server. Firestore menyimpan pengaturan kartu.
+Aplikasi Next.js mandiri untuk mencari data anggota grup Facebook dengan UID, membuat kartu member, menyimpan kartu ke Firestore, dan mengunduh kartu depan atau belakang sebagai PNG. Halaman kartu publik tersedia di `/username/{username}`.
 
-## Jalankan
+## Menjalankan aplikasi
 
 ```bash
 npm install
-cp .env.example .env.local
+cp .env.example .env
 npm run dev
 ```
 
-Buka http://localhost:3000. Isi `COOKIE` pada `.env.local` dengan cookie sesi Facebook yang berwenang melihat grup. Nilainya hanya dipakai di server untuk route scraper, tidak dikirim ke browser. Facebook dapat mengubah halaman atau mengakhiri sesi cookie.
+Buka `http://localhost:3000`. Untuk production, jalankan `npm run build` lalu `npm run start`.
 
-## Deploy ke Vercel
+## Konfigurasi environment
 
-1. Push project ke GitHub, lalu impor di Vercel.
-2. Isi environment variable Firebase dan `COOKIE` dari `.env.example`.
-3. Deploy. `vercel.json` menetapkan region function `sin1`.
+Isi environment server berikut. Jangan commit `.env`, private key, token bot, atau cookie Facebook.
 
-Untuk data, buat Firestore di `asia-southeast2` (Jakarta). Browser menghubungi Firestore langsung.
+| Variabel | Kegunaan |
+| --- | --- |
+| `FIREBASE_PROJECT_ID` | ID project Firebase yang menyimpan Firestore. |
+| `FIREBASE_SERVICE_ACCOUNT_EMAIL` | Email service account untuk akses Firestore dari server. |
+| `FIREBASE_SERVICE_ACCOUNT_PRIVATE_KEY` | Private key service account; newline dapat ditulis sebagai `\n`. Beri service account izin Firestore yang diperlukan, misalnya role `Cloud Datastore User`. |
+| `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | Site key widget Cloudflare Turnstile di form pencarian. |
+| `TURNSTILE_SECRET_KEY` | Secret key server untuk memvalidasi Turnstile. Juga dipakai menandatangani bukti pencarian sementara. |
+| `NEXT_PUBLIC_SITE_URL` | URL situs, misalnya `https://kartu.example.com` atau `localhost:3000`. |
+| `COOKIE` | Sesi Facebook utama untuk membaca profil/keanggotaan grup. |
+| `COOKIE1` | Sesi Facebook cadangan. Dicoba jika `COOKIE` gagal. |
+| `TELEGRAM_BOT_TOKEN` | Token bot Telegram dari `@BotFather`. |
+| `TELEGRAM_OWNER_CHAT_ID` | Chat ID owner yang akan menerima notifikasi scraper. Mulai chat dengan bot terlebih dahulu. |
 
-## Database member
+Untuk Turnstile, buat widget Cloudflare dan daftarkan hostname yang digunakan, termasuk `localhost` untuk pengembangan lokal. Cookie Facebook harus berasal dari akun yang berwenang melihat grup IMPHNEN. Jika kedua cookie kosong atau gagal, pencarian scraper gagal dan owner menerima satu pesan berisi detail tiap percobaan. Setelah scraping berhasil, owner menerima UID, nama, status grup, tanggal bergabung, dan sesi yang berhasil.
 
-Pencarian UID mengambil nama dan tanggal bergabung dari halaman Facebook grup. Jika ada dokumen kartu `members/{uid}` di Firestore, pengaturan kartu yang tersimpan ikut dimuat. Tanpa dokumen tersimpan, lengkapi kota, provinsi, dan username lalu simpan.
+## Alur pencarian dan penyimpanan
 
-1. Buat project Firebase, aktifkan Firestore di `asia-southeast2`, tambahkan app Web.
-2. Salin config ke variable `NEXT_PUBLIC_FIREBASE_*`.
-3. Deploy aturan: `firebase deploy --only firestore:rules`.
+1. Pengguna mengisi UID profil Facebook dan menyelesaikan Turnstile.
+2. Server memeriksa `members/{uid}` di Firestore terlebih dahulu. Jika data yang tersimpan cocok dengan sertifikat, data tersebut dikembalikan.
+3. Jika kartu belum tersedia atau tidak lolos validasi, server mencoba scraping Facebook menggunakan `COOKIE`, lalu `COOKIE1` sebagai cadangan.
+4. Hasil scraping memuat nama, status grup seperti Member/Admin, dan tanggal bergabung. Bukti hasil pencarian ditandatangani server dan berlaku 15 menit.
+5. Sebelum menyimpan, server mencocokkan nama dan username dengan sertifikat di `https://imphnen.dev/sertifikat/{username}`. Pencarian UID dan bukti Turnstile harus masih berlaku.
+6. Kartu disimpan secara transaksional. UID hanya dapat memiliki satu kartu dan username sertifikat tidak dapat diklaim kartu lain.
 
-Struktur data:
+Username yang belum memiliki sertifikat harus didaftarkan terlebih dahulu di [imphnen.dev](https://imphnen.dev/gabung). Nama dan username pada kartu tersimpan mengikuti sertifikat resmi. Tanggal bergabung berasal dari data profil yang ditemukan melalui UID.
 
-- `members/{uid}`: pengaturan kartu per UID Facebook.
-- `memberProfiles/{uid}`: cache nama, status `Member`, dan tanggal bergabung hasil scraper Facebook.
-- `usernames/{username huruf kecil}`: klaim username berisi UID pemilik.
+## Kartu dan unduhan
 
-Saat UID dicari, aplikasi memeriksa dokumen `members/{uid}` dan `memberProfiles/{uid}` terlebih dahulu. Scraping Facebook hanya dilakukan jika keduanya belum berisi data. Hasil scraping disimpan di `memberProfiles/{uid}` agar pencarian berikutnya membaca database.
+Pengguna dapat mengunduh kartu depan atau belakang sebagai PNG tanpa login. Unduhan tetap memerlukan verifikasi Turnstile dan kecocokan nama serta username dengan sertifikat. Status kartu menambahkan `Verified` pada role, misalnya `Member Verified` atau `Admin Verified`.
 
-Dokumen dapat dicari dengan UID, tetapi pembuatan dan perubahan profil/kartu hanya diizinkan untuk sesi Facebook terverifikasi dengan UID yang sama. Data kartu yang dibaca tetap dapat dilihat siapa pun yang mengetahui UID.
+Kartu yang sudah disimpan dapat dilihat melalui `/username/{username}`. Halaman tersebut dapat dibagikan secara publik dan mengambil data dari Firestore.
 
-## Privasi dan penghapusan data
+## Firestore
 
-- Kebijakan Privasi URL untuk Meta: `https://DOMAIN-PUBLIK/privacy`
-- User Data Deletion Instructions URL untuk Meta: `https://DOMAIN-PUBLIK/data-deletion`
-- Ganti `DOMAIN-PUBLIK` dengan domain deployment Vercel yang sudah aktif dan dapat dibuka publik melalui HTTPS.
-- Halaman penghapusan meminta pengguna login melalui Facebook Login Firebase. Setelah konfirmasi, aplikasi menghapus `members/{uid}`, `memberProfiles/{uid}`, dan klaim username di `usernames/{usernameLower}` dalam satu transaksi.
-- UID yang boleh dihapus harus sama dengan ID Facebook terverifikasi dari token Firebase. Ini mencegah pengguna menghapus data UID lain yang hanya mereka ketahui.
-- Aktifkan Facebook sebagai sign-in provider di Firebase Console → Authentication → Sign-in method, isi Facebook App ID dan App Secret. Karena aplikasi di-host di Vercel, set `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` ke domain situs (misalnya `imphnen-card.rnpproject.com`). Rewrite `/__/auth/*` meneruskan request ke `https://PROJECT_ID.firebaseapp.com/__/auth/*`. Masukkan `https://imphnen-card.rnpproject.com/__/auth/handler` sebagai Valid OAuth Redirect URI di Meta App, dan tambahkan domain situs ke Authorized domains Firebase Authentication.
-- Login yang sama diwajibkan untuk menyimpan kartu, mengunduh PNG, dan mint NFT. Firestore Rules juga mengikat penyimpanan profil dan kartu ke Facebook UID pada token login. Profil hasil scraping tetap dapat dilihat sebagai preview, tetapi cache database hanya dapat ditulis oleh akun Facebook yang UID-nya cocok.
-- Deploy aturan terbaru dengan `firebase deploy --only firestore:rules`.
-- NFT yang sudah mint berada di blockchain BNB Smart Chain dan IPFS, sehingga tidak dapat dihapus oleh aplikasi.
+- `members/{uid}` menyimpan kartu berdasarkan UID profil Facebook.
+- `memberOwners/{uid}` mencatat username sertifikat yang terkait dengan UID.
+- `usernames/{username}` mencegah username sertifikat dipakai oleh UID lain.
+- `firestore.rules` menolak seluruh akses langsung dari browser. API server menggunakan service account dan tidak bergantung pada Firebase Authentication.
 
-## Kartu 3D
+Deploy rules dengan Firebase CLI:
 
-Kartu berputar sekitar 26 derajat per detik. Seret untuk memutar manual. Kode ada di `components/Card3D.tsx`.
+```bash
+firebase deploy --only firestore:rules
+```
 
-## Ikon
+## Pemeriksaan kode
 
-Ikon di `app/` dan `public/` dipakai untuk favicon, pratinjau tautan, dan kartu.
-
-## Ekspor PNG
-
-Unduhan depan dan belakang dibuat sebagai PNG 2640 px.
-
-## NFT
-
-Kontrak `IMPHNENMemberCard` adalah ERC-721 gratis tanpa harga mint dan tanpa batas suplai. Mint tidak mengambil BNB sebagai harga; pemilik wallet hanya membayar gas jaringan BSC. Gambar dan JSON disimpan di IPFS lewat Pinata. Metadata NFT tidak menyertakan UID Facebook. `animation_url` berisi viewer HTML 3D di IPFS yang memutar kartu depan dan belakang.
-
-### Persiapan publish
-
-1. Buat API key Pinata dengan izin upload file dan JSON, lalu isi `PINATA_JWT` di environment server Vercel. Jangan gunakan prefix `NEXT_PUBLIC_` untuk secret ini.
-2. Siapkan BNB untuk gas deployment kontrak di wallet deployer. Ini biaya satu kali untuk pemilik koleksi; gas mint berikutnya dibayar tiap pengguna.
-3. Simpan RPC URL, private key deployer, dan API key BscScan di Hardhat keystore. Perintah akan meminta nilainya; jangan taruh private key di Git atau environment browser.
-
-   ```bash
-   npx hardhat keystore set BSC_MAINNET_RPC_URL
-   npx hardhat keystore set BSC_TESTNET_RPC_URL
-   npx hardhat keystore set BSC_DEPLOYER_PRIVATE_KEY
-   npx hardhat keystore set BSCSCAN_API_KEY
-   ```
-
-4. Compile dan deploy ke BSC Testnet terlebih dahulu:
-
-   ```bash
-   npm run contract:compile
-   npm run contract:deploy:testnet
-   ```
-
-5. Uji mint dari UI dengan `NEXT_PUBLIC_NFT_CHAIN_ID=97` dan alamat kontrak testnet.
-6. Untuk publish koleksi, deploy ke BSC Mainnet:
-
-   ```bash
-   npm run contract:deploy:mainnet
-   ```
-
-7. Verifikasi kontrak di BscScan dengan alamat hasil deployment:
-
-   ```bash
-   npm run contract:verify:mainnet -- 0xALAMAT_KONTRAK
-   ```
-
-8. Isi `NEXT_PUBLIC_NFT_CONTRACT_ADDRESS` dengan alamat mainnet dan `NEXT_PUBLIC_NFT_CHAIN_ID=56`, isi `PINATA_JWT` serta `NEXT_PUBLIC_SITE_URL` pada environment Vercel, lalu deploy ulang situs.
-
-Minting mengunggah dua PNG, viewer 3D HTML, dan metadata JSON ke IPFS sebelum wallet mengonfirmasi transaksi. Jika wallet menolak transaksi setelah upload, berkas itu tetap terpin di akun Pinata situs. UID sengaja dihilangkan dari NFT; nama, username, kota, provinsi, tanggal bergabung, dan atribut kartu tetap publik di metadata NFT.
+```bash
+npm run typecheck
+```

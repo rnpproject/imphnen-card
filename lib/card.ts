@@ -1,4 +1,4 @@
-import { GROUP_URL, THEMES, type ThemeId } from "./themes";
+import type { ThemeId } from "./themes";
 
 export interface CardState {
   uid: string;
@@ -20,11 +20,16 @@ export const INITIAL_CARD: CardState = {
   province: "Jawa Barat",
   username: "rnpproject",
   joined: "2026-11-05",
-  badge: "Member Resmi",
+  badge: "Member",
   theme: "navy",
   accent: "#ffc93c",
   showUid: false,
 };
+
+export function verifiedBadge(badge?: string | null): string {
+  const role = (badge?.trim() || "Member").replace(/\s+Resmi\b/gi, "").trim() || "Member";
+  return /\bverified\b/i.test(role) ? role : `${role} Verified`;
+}
 
 export function cleanUser(v: string): string {
   return v.replace(/^@+/, "").replace(/[^A-Za-z0-9._]/g, "").slice(0, 24);
@@ -36,20 +41,4 @@ export function locationText(c: CardState): string {
 
 export function nameClass(n: string): "" | "m" | "s" {
   return n.length > 24 ? "s" : n.length > 16 ? "m" : "";
-}
-
-export function buildMetadata(c: CardState) {
-  return {
-    name: "Kartu Member IMPHNEN - " + (c.name.trim() || "Member"),
-    description: "Kartu member komunitas IMPHNEN (Ingin Menjadi Programmer Handal Namun Enggan Ngoding).",
-    external_url: "https://" + GROUP_URL,
-    attributes: [
-      { trait_type: "Kota", value: c.city.trim() || "-" },
-      { trait_type: "Provinsi", value: c.province.trim() || "-" },
-      { trait_type: "Username", value: "@" + (c.username || "-") },
-      { trait_type: "Bergabung", value: c.joined || "-" },
-      { trait_type: "Status", value: c.badge.trim() || "Member" },
-      { trait_type: "Warna kartu", value: THEMES[c.theme].title },
-    ],
-  };
 }

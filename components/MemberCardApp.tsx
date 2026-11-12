@@ -1,39 +1,28 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { FacebookAuthProvider, onAuthStateChanged, signInWithPopup, signOut, type User } from "firebase/auth";
+import { useEffect, useState, type FormEvent } from "react";
 import Card3D, { type SnapRequest } from "./Card3D";
-import NftMintPanel from "./NftMintPanel";
+import TurnstileWidget from "./TurnstileWidget";
 import { ACCENTS, THEMES, ZONES, type ThemeId } from "@/lib/themes";
-import { INITIAL_CARD, buildMetadata, cleanUser, type CardState } from "@/lib/card";
+import { INITIAL_CARD, cleanUser, type CardState } from "@/lib/card";
 import { downloadCard } from "@/lib/exportPng";
-import { firebaseReady, getFirebaseAuth } from "@/lib/firebase";
-import { loadMemberCard, loadScrapedProfile, saveCard, saveErrorMessage, saveScrapedProfile, validateForSave } from "@/lib/members";
+import { validateForSave } from "@/lib/members";
 
 type Kind = "ok" | "err" | "busy" | "";
 interface Status { text: string; kind: Kind }
 const NONE: Status = { text: "", kind: "" };
 
-function cardSignature(c: CardState) {
-  return JSON.stringify([
-    c.uid, c.name.trim(), c.badge.trim(), c.city.trim(), c.province.trim(), c.username,
-    c.joined, c.theme, c.accent, c.showUid,
-  ]);
-}
-
 export default function MemberCardApp() {
   const [card, setCard] = useState<CardState>(INITIAL_CARD);
-  const [uidInput, setUidInput] = useState(INITIAL_CARD.uid);
+  const [uidInput, setUidInput] = useState("");
   const [activeUid, setActiveUid] = useState<string | null>(null);
-  const [savedSignature, setSavedSignature] = useState<string | null>(null);
-  const [authUser, setAuthUser] = useState<User | null>(null);
-  const [facebookUid, setFacebookUid] = useState<string | null>(null);
-  const [authBusy, setAuthBusy] = useState(false);
-  const [authStatus, setAuthStatus] = useState("");
-
+  const [scrapeProof, setScrapeProof] = useState<string | null>(null);
   const [lookupStatus, setLookupStatus] = useState<Status>(NONE);
   const [saveStatus, setSaveStatus] = useState<Status>(NONE);
-  const [copyStatus, setCopyStatus] = useState<Status>(NONE);
+  const [needsRegistration, setNeedsRegistration] = useState(false);
+  const [savedCardUrl, setSavedCardUrl] = useState("");
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const [turnstileReset, setTurnstileReset] = useState(0);
   const [looking, setLooking] = useState(false);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState<"front" | "back" | null>(null);
@@ -45,43 +34,11 @@ export default function MemberCardApp() {
     setSpinning(!window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   }, []);
 
-  useEffect(() => {
-    const auth = getFirebaseAuth();
-    if (!auth) return;
-    return onAuthStateChanged(auth, (user) => {
-      setAuthUser(user);
-      setFacebookUid(user?.providerData.find((provider) => provider.providerId === "facebook.com")?.uid ?? null);
-    });
-  }, []);
-
-  async function onFacebookLogin() {
-    const auth = getFirebaseAuth();
-    if (!auth) { setAuthStatus("Firebase belum dikonfigurasi."); return; }
-    setAuthBusy(true);
-    setAuthStatus("");
-    try {
-      await signInWithPopup(auth, new FacebookAuthProvider());
-    } catch {
-      setAuthStatus("Login gagal. Pastikan Facebook Login aktif di Firebase dan domain situs diizinkan.");
-    } finally {
-      setAuthBusy(false);
-    }
-  }
-
-  async function onFacebookLogout() {
-    const auth = getFirebaseAuth();
-    if (auth) await signOut(auth);
-    setAuthStatus("");
-  }
-
-  const patch = (p: Partial<CardState>) => setCard((c) => ({ ...c, ...p }));
-  const ownsCard = facebookUid !== null && facebookUid === card.uid;
-  const verifiedProfile = ownsCard && activeUid === card.uid;
-  const displayedCard = useMemo(() => ({
-    ...card,
-    badge: verifiedProfile ? `${card.badge.trim() || "Member"} Verified` : "Member",
-  }), [card, verifiedProfile]);
-  const metadata = useMemo(() => JSON.stringify(buildMetadata(displayedCard), null, 2), [displayedCard]);
+  const patch = (p: Partial<CardState>) => {
+    setSavedCardUrl("");
+    if (p.uid !== undefined && p.uid !== card.uid) setScrapeProof(null);
+    setCard((c) => ({ ...c, ...p }));
+  };
 
   const showFace = (face: "front" | "back") => {
     setSpinning(false);
@@ -90,8 +47,8 @@ export default function MemberCardApp() {
 
   async function onLookup(e: FormEvent) {
     e.preventDefault();
-    if (!facebookUid) {
-      setLookupStatus({ text: "Login dengan Facebook terlebih dahulu untuk mencari data.", kind: "err" });
+    if (!turnstileToken) {
+      setLookupStatus({ text: "Selesaikan verifikasi Cloudflare terlebih dahulu.", kind: "err" });
       return;
     }
     const uid = uidInput.replace(/\s+/g, "");
@@ -100,44 +57,33 @@ export default function MemberCardApp() {
       return;
     }
     setLooking(true);
-    setSavedSignature(null);
     setSaveStatus(NONE);
+    setSavedCardUrl("");
+    setScrapeProof(null);
     setLookupStatus({ text: "Memeriksa database...", kind: "busy" });
     try {
-      const savedCard = firebaseReady ? await loadMemberCard(uid) : null;
-      let profile = firebaseReady ? await loadScrapedProfile(uid) : null;
-      if (!profile && savedCard?.name && savedCard.joined) {
-        profile = { name: savedCard.name, badge: savedCard.badge || "Member", joinedAt: savedCard.joined };
-      }
-      let scraped = false;
-      let cacheWriteFailed = false;
-      let profileCached = false;
-      let cacheSkipped = false;
-
-      if (!profile) {
-        setLookupStatus({ text: "UID tidak ada di database. Mengambil data dari Facebook...", kind: "busy" });
-        const res = await fetch(`/api/member/${encodeURIComponent(uid)}`, { cache: "no-store" });
-        const data = await res.json().catch(() => null);
-        if (!res.ok || !data) throw new Error(data?.error ?? `Server menjawab dengan kode ${res.status}.`);
-        profile = { name: data.name, badge: data.badge || "Member", joinedAt: data.joinedAt };
-        scraped = true;
-        if (firebaseReady && facebookUid === uid) {
-          try {
-            await saveScrapedProfile(uid, profile);
-            profileCached = true;
-          } catch {
-            cacheWriteFailed = true;
-          }
-        } else if (firebaseReady) {
-          cacheSkipped = true;
-        }
-      }
+      const res = await fetch(`/api/member/${encodeURIComponent(uid)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ turnstileToken }),
+        cache: "no-store",
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data) throw new Error(data?.error ?? `Server menjawab dengan kode ${res.status}.`);
+      setScrapeProof(typeof data.scrapeProof === "string" ? data.scrapeProof : null);
+      const savedCard = data.source === "database" ? data.card as CardState : null;
+      const profile = savedCard?.name && savedCard.joined
+        ? { name: savedCard.name, badge: savedCard.badge || "Member", joinedAt: savedCard.joined }
+        : { name: data.name || "", badge: data.badge || "Member", joinedAt: data.joinedAt };
+      const scraped = data.source !== "database";
 
       const sameUid = uid === card.uid;
       const next: CardState = {
         ...(savedCard ?? (sameUid ? card : {
           ...INITIAL_CARD,
           uid,
+          name: profile.name,
+          joined: profile.joinedAt,
           username: "",
           city: "",
           province: "",
@@ -150,78 +96,86 @@ export default function MemberCardApp() {
       };
       setActiveUid(uid);
       setCard(next);
-      setSavedSignature(savedCard ? cardSignature(savedCard) : null);
       showFace("front");
       setLookupStatus({
         text: savedCard
           ? `Data UID ${uid} dimuat dari database.`
-          : scraped && !firebaseReady
-            ? `Data Facebook ditemukan, tetapi Firestore belum dikonfigurasi sehingga profil belum tersimpan.`
-          : scraped && cacheWriteFailed
-            ? `Data Facebook ditemukan, tetapi gagal disimpan ke cache database.`
-            : scraped && profileCached
-              ? `Data Facebook ditemukan dan disimpan ke memberProfiles/${uid}. Lengkapi kartu lalu tekan Simpan kartu.`
-            : scraped && cacheSkipped
-              ? `Data Facebook ditemukan untuk preview. Login dengan akun pemilik UID tersebut agar profil dapat disimpan ke database.`
+          : scraped
+              ? "Data Facebook ditemukan. Lengkapi detail lalu simpan kartu agar tersimpan di database."
               : `Data profil UID ${uid} dimuat dari database. Lengkapi detail kartu lalu simpan.`,
         kind: "ok",
       });
     } catch (err) {
       setActiveUid(null);
-      setSavedSignature(null);
+      setScrapeProof(null);
       setLookupStatus({ text: err instanceof Error ? err.message : "Pencarian gagal. Coba lagi.", kind: "err" });
     } finally {
       setLooking(false);
+      setTurnstileToken("");
+      setTurnstileReset((value) => value + 1);
     }
   }
 
-  const canSave = firebaseReady && activeUid !== null && activeUid === card.uid && ownsCard;
-  const cardSaved = savedSignature !== null && savedSignature === cardSignature(card);
-  const saveHint = !firebaseReady
-    ? "Firebase belum dikonfigurasi. Isi NEXT_PUBLIC_FIREBASE_* untuk menyimpan kartu."
-      : !authUser
-        ? "Login dengan Facebook untuk menyimpan kartu."
-      : !ownsCard
-        ? "Login dengan akun Facebook yang UID-nya cocok dengan kartu ini."
-      : !canSave
-      ? "Cari data UID Facebook dulu sebelum menyimpan kartu."
-      : "";
+  const canSave = activeUid !== null
+    && activeUid === card.uid
+    && scrapeProof !== null;
+  const saveHint = !canSave
+    ? !activeUid ? "Cari data UID dulu sebelum menyimpan kartu." : "Cari ulang UID dan selesaikan verifikasi Cloudflare untuk melanjutkan simpan."
+    : "";
 
   async function onSave() {
-    if (!ownsCard) { setSaveStatus({ text: "Verifikasi Facebook dengan UID yang sama sebelum menyimpan.", kind: "err" }); return; }
     const problem = validateForSave(card);
     if (problem) { setSaveStatus({ text: problem, kind: "err" }); return; }
     setSaving(true);
     setSaveStatus({ text: "Menyimpan...", kind: "busy" });
+    setNeedsRegistration(false);
     const cardToSave = { ...card };
     try {
-      await saveCard(cardToSave);
-      setSavedSignature(cardSignature(cardToSave));
+      const response = await fetch("/api/member/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ card: cardToSave, scrapeProof }),
+        cache: "no-store",
+      });
+      const data = await response.json().catch(() => null) as { ok?: boolean; error?: string; code?: string; username?: string } | null;
+      if (!response.ok || !data?.ok) {
+        if (data?.code === "CERTIFICATE_NOT_FOUND") setNeedsRegistration(true);
+        throw new Error(data?.error ?? "Kartu gagal disimpan.");
+      }
       setSaveStatus({ text: "Kartu tersimpan.", kind: "ok" });
+      setSavedCardUrl(`/username/${encodeURIComponent(data.username ?? cardToSave.username.toLowerCase())}`);
     } catch (e) {
-      setSaveStatus({ text: saveErrorMessage(e), kind: "err" });
+      setSaveStatus({ text: e instanceof Error ? e.message : "Kartu gagal disimpan.", kind: "err" });
     } finally {
       setSaving(false);
+      setTurnstileToken("");
+      setTurnstileReset((value) => value + 1);
     }
   }
 
   async function onDownload(side: "front" | "back") {
+    if (!turnstileToken) {
+      setLookupStatus({ text: "Selesaikan verifikasi Cloudflare sebelum mengunduh kartu.", kind: "err" });
+      return;
+    }
     setExporting(side);
     try {
-      await downloadCard(displayedCard, side);
-    } catch {
-      setLookupStatus({ text: "Gambar gagal dibuat. Coba lagi.", kind: "err" });
+      const response = await fetch("/api/member/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: card.name, username: card.username, turnstileToken }),
+        cache: "no-store",
+      });
+      const data = await response.json().catch(() => null) as { error?: string } | null;
+      if (!response.ok) throw new Error(data?.error ?? "Nama dan username belum terverifikasi.");
+      await downloadCard(card, side);
+      setLookupStatus({ text: "Kartu sudah diverifikasi dan berhasil diunduh.", kind: "ok" });
+    } catch (error) {
+      setLookupStatus({ text: error instanceof Error ? error.message : "Gambar gagal dibuat. Coba lagi.", kind: "err" });
     } finally {
       setExporting(null);
-    }
-  }
-
-  async function onCopy() {
-    try {
-      await navigator.clipboard.writeText(metadata);
-      setCopyStatus({ text: "Metadata disalin.", kind: "ok" });
-    } catch {
-      setCopyStatus({ text: "Salin gagal. Pilih teks lalu tekan Ctrl+C.", kind: "" });
+      setTurnstileToken("");
+      setTurnstileReset((value) => value + 1);
     }
   }
 
@@ -229,42 +183,27 @@ export default function MemberCardApp() {
     <main className="wrap layout">
       <section className="panel p-lookup" aria-labelledby="h-lookup">
         <h2 id="h-lookup">Cari member</h2>
-        <p className="hint">Ambil nama dan tanggal bergabung dari Facebook menggunakan UID.</p>
+        <p className="hint">Ambil nama dan tanggal bergabung dari Facebook menggunakan UID. Verifikasi Cloudflare diperlukan untuk pencarian.</p>
         <form onSubmit={onLookup} noValidate>
           <div className="row">
             <div className="field">
-              <label htmlFor="uid">UID Facebook</label>
+              <label htmlFor="uid">UID profil Facebook</label>
               <input
                 id="uid" type="text" inputMode="numeric" autoComplete="off" spellCheck={false}
-                placeholder="100079664152403" value={uidInput} onChange={(e) => setUidInput(e.target.value)}
+                placeholder="Masukkan UID profil" value={uidInput} onChange={(e) => setUidInput(e.target.value)}
               />
             </div>
-            {facebookUid ? (
-              <button className="btn btn-primary" type="submit" disabled={looking}>{looking ? "Mencari..." : "Cari data"}</button>
-            ) : (
-              <button className="btn btn-primary" type="button" onClick={onFacebookLogin} disabled={authBusy || !firebaseReady}>
-                {authBusy ? "Membuka login..." : "Login Facebook"}
-              </button>
-            )}
+            <button className="btn btn-primary" type="submit" disabled={looking || !turnstileToken}>
+              {looking ? "Mencari..." : "Cari data"}
+            </button>
           </div>
+          <TurnstileWidget onToken={setTurnstileToken} resetSignal={turnstileReset} />
           <p className={"status " + lookupStatus.kind} role="status" aria-live="polite">{lookupStatus.text}</p>
         </form>
-        {!firebaseReady ? (
-          <p className="mode">Pencarian Facebook tetap tersedia. Isi <code>NEXT_PUBLIC_FIREBASE_*</code> untuk menyimpan pengaturan kartu.</p>
-        ) : null}
-        <div className="facebook-session">
-          {authUser && facebookUid ? (
-            <>
-              <p className="deletion-identity">Login Facebook · UID: <strong>{facebookUid}</strong></p>
-              <button className="text-button" type="button" onClick={onFacebookLogout}>Keluar</button>
-            </>
-          ) : null}
-          {authStatus ? <p className="status err" role="status">{authStatus}</p> : null}
-        </div>
       </section>
 
       <section className="stage" aria-label="Pratinjau kartu">
-        <Card3D card={displayedCard} spinning={spinning} snap={snap} />
+        <Card3D card={card} spinning={spinning} snap={snap} />
         <div className="tools">
           <button className="btn btn-ghost" type="button" onClick={() => setSpinning((v) => !v)} aria-pressed={spinning}>
             {spinning ? "Jeda putaran" : "Putar otomatis"}
@@ -281,7 +220,7 @@ export default function MemberCardApp() {
 
       <section className="panel p-edit" aria-labelledby="h-edit">
         <h2 id="h-edit">Ubah tampilan</h2>
-        <p className="hint">Nama dan tanggal bergabung diambil dari UID. Ubah detail kartu di sini; tanggal hanya tampil di preview.</p>
+        <p className="hint">Nama dan tanggal bergabung diambil dari UID. Nama serta username yang disimpan harus sesuai sertifikat resmi IMPHNEN.</p>
         <div className="stack">
           <div className="grid-2">
             <div className="field">
@@ -291,10 +230,6 @@ export default function MemberCardApp() {
             <div className="field">
               <label htmlFor="username">Username</label>
               <input id="username" type="text" maxLength={24} autoComplete="off" spellCheck={false} value={card.username} onChange={(e) => patch({ username: cleanUser(e.target.value) })} />
-            </div>
-            <div className="field">
-              <label htmlFor="joined">Tanggal bergabung</label>
-              <input id="joined" type="date" value={card.joined} onChange={(e) => patch({ joined: e.target.value })} />
             </div>
             <div className="field">
               <label htmlFor="city">Kota</label>
@@ -342,11 +277,12 @@ export default function MemberCardApp() {
             </button>
             {saveHint ? <p className="hint hint-save">{saveHint}</p> : null}
             <p className={"status " + saveStatus.kind} role="status" aria-live="polite">{saveStatus.text}</p>
+            {savedCardUrl ? <p className="hint"><a href={savedCardUrl}>Lihat preview publik kartu</a></p> : null}
+            {needsRegistration ? <p className="hint"><a href="https://imphnen.dev/gabung" target="_blank" rel="noreferrer">Daftar terlebih dahulu di imphnen.dev</a>, lalu pastikan sertifikat username Anda sudah tersedia.</p> : null}
           </div>
         </div>
       </section>
 
-      <NftMintPanel card={displayedCard} cardSaved={cardSaved} ownerVerified={ownsCard} metadata={metadata} onCopy={onCopy} copyStatus={copyStatus} />
     </main>
   );
 }

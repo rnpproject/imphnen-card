@@ -4,7 +4,7 @@ import { useEffect, useRef, type CSSProperties } from "react";
 import { GROUP_URL, THEMES } from "@/lib/themes";
 import { fmtDate } from "@/lib/date";
 import { identiconCells } from "@/lib/identicon";
-import { locationText, nameClass, type CardState } from "@/lib/card";
+import { locationText, nameClass, verifiedBadge, type CardState } from "@/lib/card";
 
 export type SnapRequest = { face: "front" | "back"; nonce: number } | null;
 
@@ -162,7 +162,7 @@ export default function Card3D({ card, spinning, snap }: Props) {
           <div className="face front" aria-hidden="true">
             {DECO}
             <img className="abs f-logo" src="/logo.png" alt="" />
-            <p className="abs f-badge">{card.badge.trim() || "Member"}</p>
+            <p className="abs f-badge">{verifiedBadge(card.badge)}</p>
             <p className={"abs f-name " + nameClass(name)}>{name}</p>
             <p className="abs f-zone">{locationText(card)}</p>
             <p className="abs lbl f-ulbl">Username</p>

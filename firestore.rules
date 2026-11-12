@@ -1,86 +1,20 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // members/{uid}: satu dokumen per UID Facebook (ID dokumen = UID, jadi tidak bisa dobel).
-    // usernames/{usernameLower}: klaim username. ID dokumen = username huruf kecil, jadi dua member
-    // tidak bisa memegang username yang sama. Kedua dokumen harus ditulis dalam satu transaksi.
-
-    function validMember(uid) {
-      let d = request.resource.data;
-      return d.keys().hasOnly(['uid','name','badge','city','province','username','usernameLower',
-                               'joinedAt','theme','accent','showUid','createdAt','updatedAt'])
-        && d.keys().hasAll(['uid','name','badge','username','usernameLower','joinedAt','createdAt','updatedAt'])
-        && d.uid == uid
-        && d.name is string && d.name.size() > 0 && d.name.size() <= 40
-        && d.badge is string && d.badge.size() > 0 && d.badge.size() <= 40
-        && d.city is string && d.city.size() <= 40
-        && d.province is string && d.province.size() <= 40
-        && d.username is string && d.username.matches('^[A-Za-z0-9._]{3,24}$')
-        && d.usernameLower == d.username.lower()
-        && d.joinedAt is string && d.joinedAt.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
-        && d.theme in ['navy', 'langit', 'dark']
-        && d.accent is string && d.accent.matches('^#[0-9a-fA-F]{6}$')
-        && d.showUid is bool
-        && d.updatedAt == request.time
-        && getAfter(/databases/$(database)/documents/usernames/$(d.usernameLower)).data.uid == uid;
-    }
-
-    // Login Facebook Firebase membawa ID Facebook pada claim identities.
-    function isVerifiedFacebookUid(uid) {
-      return request.auth != null
-        && request.auth.token.firebase.sign_in_provider == 'facebook.com'
-        && request.auth.token.firebase.identities['facebook.com'][0] == uid;
-    }
-
     match /members/{uid} {
-      allow get: if uid.matches('^[0-9]{5,20}$');
-      allow list: if false;
-      allow create: if uid.matches('^[0-9]{5,20}$')
-                    && isVerifiedFacebookUid(uid)
-                    && validMember(uid)
-                    && request.resource.data.createdAt == request.time;
-      allow update: if isVerifiedFacebookUid(uid)
-                    && validMember(uid)
-                    && request.resource.data.createdAt == resource.data.createdAt;
-      allow delete: if isVerifiedFacebookUid(uid);
+      allow read, write: if false;
     }
 
-    // Cache nama, status anggota, dan tanggal bergabung hasil scraping Facebook.
-    function validScrapedProfile(uid) {
-      let d = request.resource.data;
-      return d.keys().hasOnly(['uid','name','badge','joinedAt','updatedAt'])
-        && d.keys().hasAll(['uid','name','badge','joinedAt','updatedAt'])
-        && d.uid == uid
-        && d.name is string && d.name.size() > 0 && d.name.size() <= 100
-        && d.badge is string && d.badge.size() > 0 && d.badge.size() <= 40
-        && d.joinedAt is string && d.joinedAt.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
-        && d.updatedAt == request.time;
-    }
-
-    match /memberProfiles/{uid} {
-      allow get: if uid.matches('^[0-9]{5,20}$');
-      allow list: if false;
-      allow create, update: if uid.matches('^[0-9]{5,20}$')
-                            && isVerifiedFacebookUid(uid)
-                            && validScrapedProfile(uid);
-      allow delete: if isVerifiedFacebookUid(uid);
+    match /memberOwners/{uid} {
+      allow read, write: if false;
     }
 
     match /usernames/{name} {
-      allow get: if true;
-      allow list: if false;
-      allow create: if name.matches('^[a-z0-9._]{3,24}$')
-                    && request.resource.data.keys().hasOnly(['uid','createdAt'])
-                    && request.resource.data.uid is string
-                    && request.resource.data.uid.matches('^[0-9]{5,20}$')
-                    && request.resource.data.createdAt == request.time
-                    && getAfter(/databases/$(database)/documents/members/$(request.resource.data.uid)).data.usernameLower == name;
-      allow update: if false;
-      // Klaim hanya boleh dilepas kalau pemiliknya pindah ke username lain di transaksi yang sama.
-      allow delete: if existsAfter(/databases/$(database)/documents/members/$(resource.data.uid))
-                    ? getAfter(/databases/$(database)/documents/members/$(resource.data.uid)).data.usernameLower != name
-                    : isVerifiedFacebookUid(resource.data.uid);
+      allow read, write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
