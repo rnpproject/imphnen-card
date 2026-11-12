@@ -2,11 +2,16 @@ import type { Metadata, Viewport } from "next";
 import { Fredoka, Nunito } from "next/font/google";
 import "./globals.css";
 
+const configuredSiteUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+const siteUrl = configuredSiteUrl && !/localhost|127\.0\.0\.1/i.test(configuredSiteUrl)
+  ? configuredSiteUrl
+  : "https://imphnen-card.rnpproject.com";
+
 const fredoka = Fredoka({ subsets: ["latin"], weight: ["500", "600", "700"], variable: "--font-fredoka", display: "swap" });
 const nunito = Nunito({ subsets: ["latin"], weight: ["600", "700", "800", "900"], variable: "--font-nunito", display: "swap" });
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://imphnen-card.rnpproject.com"),
+  metadataBase: new URL(siteUrl),
   title: "Kartu Member IMPHNEN",
   description: "Buat kartu member IMPHNEN dari UID Facebook, atur tampilannya, lalu unduh sebagai PNG.",
 };
