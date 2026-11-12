@@ -83,7 +83,8 @@ function families() {
 
 export async function renderCanvas(c: CardState, side: "front" | "back", width = 2640): Promise<HTMLCanvasElement> {
   const F = families();
-  await Promise.all([
+  // Font network failures on mobile Safari must not cancel the PNG export.
+  await Promise.allSettled([
     document.fonts.load("800 20px " + F.body),
     document.fonts.load("700 20px " + F.body),
     document.fonts.load("500 20px " + F.display),
@@ -100,8 +101,13 @@ export async function renderCanvas(c: CardState, side: "front" | "back", width =
   const N = F.body, D = F.display;
 
   if (side === "front") {
-    const logo = await loadImg("/logo.png");
-    ctx.drawImage(logo, 6.5 * u, 6 * u, 20 * u, (20 * u * logo.height) / logo.width);
+    const logo = await loadImg("/logo.png").catch(() => null);
+    if (logo) {
+      ctx.drawImage(logo, 6.5 * u, 6 * u, 20 * u, (20 * u * logo.height) / logo.width);
+    } else {
+      txt(ctx, "IMPHNEN", 6.5 * u, 11 * u, `800 ${3.4 * u}px ${D}`, T.text);
+      txt(ctx, "Member Card", 6.5 * u, 14.5 * u, `700 ${2.1 * u}px ${D}`, T.text);
+    }
     txt(ctx, verifiedBadge(c.badge), W - 6.5 * u, 11.3 * u, `600 ${4 * u}px ${D}`, userColor, "right");
     const ns = name.length > 24 ? 5 : name.length > 16 ? 6 : 7.2;
     const ny = (name.length > 24 ? 26.2 : name.length > 16 ? 25.4 : 24.8) + ns / 2;
@@ -144,14 +150,37 @@ export async function renderCanvas(c: CardState, side: "front" | "back", width =
 }
 
 export async function downloadCard(c: CardState, side: "front" | "back") {
-  const cv = await renderCanvas(c, side);
+  const mobile = window.matchMedia("(max-width: 768px)").matches;
+  const cv = await renderCanvas(c, side, mobile ? 1800 : 2640);
   const blob = await new Promise<Blob | null>((r) => cv.toBlob(r, "image/png"));
   if (!blob) throw new Error("toBlob gagal");
+  const filename = `kartu-imphnen-${c.username || "member"}-${side === "front" ? "depan" : "belakang"}.png`;
+
+  // iOS browsers handle generated files more reliably through the share sheet;
+  // the user can choose Save to Files from there.
+  const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent)
+    || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const file = new File([blob], filename, { type: "image/png" });
+  if (isIOS && navigator.share && navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: "Kartu Member IMPHNEN" });
+      return;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      // Fall through to the normal download link if the share sheet is unavailable.
+    }
+  }
+
+  const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = `kartu-imphnen-${c.username || "member"}-${side === "front" ? "depan" : "belakang"}.png`;
+  a.href = url;
+  a.download = filename;
+  a.rel = "noopener";
   document.body.appendChild(a);
   a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  // Mobile download managers can start reading a Blob URL after a short delay.
+  setTimeout(() => {
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, 60_000);
 }
